@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IonQ / SkyWater Collar Tracker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f3;color:#1a1a18;padding:1.5rem;max-width:1000px;margin:0 auto}
+h1{font-size:20px;font-weight:600;margin-bottom:4px}
+.sub{font-size:13px;color:#777;margin-bottom:1.5rem}
+.sync-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#1D9E75;background:#e8f7f1;border-radius:20px;padding:4px 12px;margin-bottom:1rem}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:#1D9E75}
+.sync-badge.offline{color:#e34948;background:#fbeaea}
+.sync-badge.offline .sync-dot{background:#e34948}
+.metric-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:1.5rem}
+.metric{background:#fff;border-radius:8px;padding:1rem;border:1px solid #e0e0da}
+.metric-label{font-size:11px;color:#999;margin-bottom:4px}
+.metric-value{font-size:22px;font-weight:600}
+.metric-sub{font-size:11px;color:#777;margin-top:4px}
+.input-row,.export-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:1rem}
+label{font-size:13px;color:#666;white-space:nowrap}
+input[type=number],input[type=date],input[type=text]{border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;background:#fff;color:#1a1a18}
+button{border:1px solid #aaa;border-radius:6px;padding:6px 14px;font-size:13px;background:#fff;cursor:pointer;color:#1a1a18}
+button:hover{background:#f0f0ee}
+button:disabled{opacity:0.5;cursor:not-allowed}
+.note-bar{font-size:12px;color:#888;background:#f0f0ee;border-radius:6px;padding:8px 12px;margin-bottom:1.5rem}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px;font-size:12px;color:#666}
+.legend span{display:flex;align-items:center;gap:5px}
+.sw{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.section-label{font-size:13px;font-weight:600;color:#666;margin-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:8px;overflow:hidden}
+th{text-align:left;padding:8px;color:#999;font-weight:500;border-bottom:1px solid #e0e0da;background:#fafaf8}
+td{padding:8px;border-bottom:1px solid #eee;color:#1a1a18}
+tr:last-child td{border-bottom:none}
+.chart-wrap{position:relative;width:100%;height:300px;margin-bottom:1.5rem;background:#fff;border-radius:8px;padding:1rem;border:1px solid #e0e0da}
+.zone-above{color:#1D9E75;font-weight:600}
+.zone-in{color:#2a78d6;font-weight:600}
+.zone-below{color:#e34948;font-weight:600}
+.danger{color:#e34948;border-color:#e34948}
+.export-status{font-size:12px;color:#1D9E75}
+.name-row{font-size:12px;color:#888;margin-bottom:1rem}
+</style>
+</head>
+<body>
+<h1>IonQ / SkyWater Collar Tracker</h1>
+<p class="sub">20-day VWAP monitor &middot; Collar: $38.01 lower / $60.19 upper &middot; Target stock payout: $20.00/share</p>
+<div class="sync-badge" id="syncBadge"><span class="sync-dot"></span><span id="syncText">Connecting...</span></div>
+
+<div class="name-row">
+  Posting as: <input type="text" id="contributorName" placeholder="your name" style="width:140px" onchange="saveName()">
+  <span style="color:#aaa">(shown next to entries you add)</span>
+</div>
+
+<div class="input-row">
+  <label>Add closing price ($):</label>
+  <input type="number" id="newPrice" placeholder="51.25" step="0.01" min="0.01" style="width:120px">
+  <input type="date" id="newDate">
+  <button onclick="addEntry()">Add entry</button>
+  <button class="danger" onclick="clearAll()">Clear all (affects everyone)</button>
+</div>
+
+<div class="export-row">
+  <span style="font-size:13px;color:#888">Export:</span>
+  <button onclick="exportCSV()">Download CSV</button>
+  <span class="export-status" id="exportStatus"></span>
+</div>
+
+<div class="metric-row">
+  <div class="metric"><div class="metric-label">20-day VWAP</div><div class="metric-value" id="vwapVal">—</div><div class="metric-sub">Last 20 trading days</div></div>
+  <div class="metric"><div class="metric-label">Shares per SKYT share</div><div class="metric-value" id="sharesVal">—</div><div class="metric-sub">Collar: 0.3326–0.5265</div></div>
+  <div class="metric"><div class="metric-label">Stock payout value</div><div class="metric-value" id="payoutVal">—</div><div class="metric-sub">Target: $20.00</div></div>
+  <div class="metric"><div class="metric-label">Collar zone</div><div class="metric-value" id="zoneVal">—</div><div class="metric-sub" id="zoneSub"></div></div>
+</div>
+
+<div class="note-bar" id="noteBar"></div>
+
+<p class="section-label">Price history vs. collar boundaries</p>
+<div class="legend">
+  <span><span class="sw" style="background:#888780"></span>Daily close</span>
+  <span><span class="sw" style="background:#2a78d6"></span>20-day VWAP</span>
+  <span><span class="sw" style="background:#1baf7a"></span>Upper collar ($60.19)</span>
+  <span><span class="sw" style="background:#e34948"></span>Lower collar ($38.01)</span>
+</div>
+<div class="chart-wrap"><canvas id="priceChart"></canvas></div>
+
+<p class="section-label">Price log</p>
+<table>
+  <thead><tr><th>Date</th><th>Close</th><th>20d VWAP</th><th>Shares</th><th>Stock payout</th><th>Zone</th><th>Added by</th><th></th></tr></thead>
+  <tbody id="priceTableBody"></tbody>
+</table>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getDatabase, ref, onValue, set, push, remove
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAL_ZLo1z4QsG_gW0IKUZIIQOdI3X-7csk",
+  authDomain: "ionq-skywater-collar-tracker.firebaseapp.com",
+  databaseURL: "https://ionq-skywater-collar-tracker-default-rtdb.firebaseio.com",
+  projectId: "ionq-skywater-collar-tracker",
+  storageBucket: "ionq-skywater-collar-tracker.firebasestorage.app",
+  messagingSenderId: "776826562654",
+  appId: "1:776826562654:web:1247191d6811d405fa6ccf"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const entriesRef = ref(db, 'entries');
+
+const LOWER_SHARES = 0.3326, UPPER_SHARES = 0.5265, TARGET = 20;
+const LOWER_PRICE = TARGET / UPPER_SHARES, UPPER_PRICE = TARGET / LOWER_SHARES;
+
+const SEED = [
+  {date:'2026-05-22',price:63.64},{date:'2026-05-26',price:63.62},{date:'2026-05-27',price:65.40},
+  {date:'2026-05-28',price:70.14},{date:'2026-05-29',price:72.07},{date:'2026-06-01',price:69.28},
+  {date:'2026-06-02',price:71.40},{date:'2026-06-03',price:68.23},{date:'2026-06-04',price:65.66},
+  {date:'2026-06-05',price:56.78},{date:'2026-06-08',price:62.80},{date:'2026-06-09',price:56.69},
+  {date:'2026-06-10',price:56.63},{date:'2026-06-11',price:57.99},{date:'2026-06-12',price:57.85},
+  {date:'2026-06-15',price:61.18},{date:'2026-06-16',price:56.06},{date:'2026-06-17',price:54.69},
+  {date:'2026-06-18',price:56.55},{date:'2026-06-22',price:59.85},{date:'2026-06-24',price:53.60},
+  {date:'2026-06-25',price:50.56},{date:'2026-06-26',price:49.31}
+];
+
+let entries = []; // [{key, date, price, by}]
+let chart = null, computedCache = [];
+let seeded = false;
+
+function today() { return new Date().toISOString().slice(0,10); }
+function fmtD(n) { return n == null ? '—' : '$' + n.toFixed(2); }
+function fmtDate(s) { const p = s.split('-'); return p[1] + '/' + p[2] + '/' + p[0].slice(2); }
+function rollingVwap(arr, idx) { const sl = arr.slice(Math.max(0, idx-19), idx+1); return sl.reduce((a,b)=>a+b.price,0) / sl.length; }
+function calcShares(v) { return Math.min(Math.max(TARGET / v, LOWER_SHARES), UPPER_SHARES); }
+function getZone(v) { return v > UPPER_PRICE ? 'above' : v < LOWER_PRICE ? 'below' : 'in'; }
+function zoneLabel(z) { return z === 'above' ? '<span class="zone-above">Above</span>' : z === 'below' ? '<span class="zone-below">Below</span>' : '<span class="zone-in">Inside</span>'; }
+
+window.saveName = function() {
+  localStorage.setItem('collar_contributor_name', document.getElementById('contributorName').value);
+};
+const savedName = localStorage.getItem('collar_contributor_name');
+if (savedName) document.getElementById('contributorName').value = savedName;
+
+window.addEntry = function() {
+  const p = parseFloat(document.getElementById('newPrice').value);
+  const d = document.getElementById('newDate').value || today();
+  const by = document.getElementById('contributorName').value.trim() || 'anonymous';
+  if (!p || p <= 0) { alert('Enter a valid price.'); return; }
+  // overwrite if a same-date entry already exists, else push new
+  const existing = entries.find(e => e.date === d);
+  if (existing) {
+    set(ref(db, 'entries/' + existing.key), { date: d, price: p, by });
+  } else {
+    push(entriesRef, { date: d, price: p, by });
+  }
+  document.getElementById('newPrice').value = '';
+  document.getElementById('newDate').value = '';
+};
+
+window.deleteEntry = function(key) {
+  if (!confirm('Remove this entry for everyone?')) return;
+  remove(ref(db, 'entries/' + key));
+};
+
+window.clearAll = function() {
+  if (!confirm('This clears the tracker for EVERYONE viewing it. Continue?')) return;
+  set(entriesRef, null);
+};
+
+window.exportCSV = function() {
+  const rows = [['Date','Close','20d VWAP','Shares','Stock Payout','Zone','Added by']];
+  computedCache.forEach(r => rows.push([r.date, r.price.toFixed(2), r.vwap.toFixed(4), r.shares.toFixed(4), (r.shares*r.vwap).toFixed(2), r.zone==='above'?'Above':r.zone==='below'?'Below':'Inside', r.by||'']));
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'ionq_collar_tracker.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+  document.getElementById('exportStatus').textContent = 'Downloaded CSV';
+  setTimeout(() => { document.getElementById('exportStatus').textContent = ''; }, 3000);
+};
+
+function render() {
+  const tbody = document.getElementById('priceTableBody');
+  const noteBar = document.getElementById('noteBar');
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:1rem;color:#999">No entries yet.</td></tr>';
+    ['vwapVal','sharesVal','payoutVal','zoneVal'].forEach(id => document.getElementById(id).textContent = '—');
+    document.getElementById('zoneSub').textContent = '';
+    noteBar.textContent = '';
+    if (chart) { chart.destroy(); chart = null; }
+    return;
+  }
+  const sorted = entries.slice().sort((a,b) => a.date.localeCompare(b.date));
+  computedCache = sorted.map((e,i) => {
+    const vwap = rollingVwap(sorted, i);
+    const shares = calcShares(vwap);
+    return Object.assign({}, e, {vwap, shares, payout: shares*vwap, zone: getZone(vwap)});
+  });
+  const last = computedCache[computedCache.length - 1];
+  document.getElementById('vwapVal').textContent = fmtD(last.vwap);
+  document.getElementById('sharesVal').textContent = last.shares.toFixed(4);
+  document.getElementById('payoutVal').textContent = fmtD(last.payout);
+  const zEl = document.getElementById('zoneVal');
+  const zSub = document.getElementById('zoneSub');
+  if (last.zone === 'above') { zEl.textContent = 'Above'; zEl.className = 'metric-value zone-above'; zSub.textContent = 'Capped at ' + LOWER_SHARES + ' shares → payout > $20'; }
+  else if (last.zone === 'below') { zEl.textContent = 'Below'; zEl.className = 'metric-value zone-below'; zSub.textContent = 'Floored at ' + UPPER_SHARES + ' shares → payout < $20'; }
+  else { zEl.textContent = 'Inside'; zEl.className = 'metric-value zone-in'; zSub.textContent = 'Floating — tracks $20 target'; }
+  const n = sorted.length;
+  if (n < 20) noteBar.textContent = 'ℹ ' + n + ' of 20 trading days loaded — VWAP will stabilize at a full 20-day window. This data is shared live with everyone viewing this page.';
+  else { const w = sorted.slice(-20); noteBar.textContent = 'Rolling window: ' + fmtDate(w[0].date) + ' → ' + fmtDate(w[w.length-1].date) + '. Shared live with everyone viewing this page.'; }
+  tbody.innerHTML = computedCache.slice().reverse().map(row => {
+    return '<tr><td>' + fmtDate(row.date) + '</td><td>' + fmtD(row.price) + '</td><td>' + fmtD(row.vwap) + '</td><td>' + row.shares.toFixed(4) + '</td><td>' + fmtD(row.payout) + '</td><td>' + zoneLabel(row.zone) + '</td><td>' + (row.by||'—') + '</td><td><button onclick="deleteEntry(\'' + row.key + '\')" style="font-size:11px;padding:1px 6px;">✕</button></td></tr>';
+  }).join('');
+  renderChart(computedCache);
+}
+
+function renderChart(computed) {
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  if (chart) { chart.destroy(); chart = null; }
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: computed.map(r => fmtDate(r.date)),
+      datasets: [
+        {label:'Daily close', data:computed.map(r=>parseFloat(r.price.toFixed(2))), borderColor:'#888780', borderWidth:1.5, pointRadius:3, pointBackgroundColor:'#888780', tension:0.2, fill:false, borderDash:[4,3]},
+        {label:'20d VWAP', data:computed.map(r=>parseFloat(r.vwap.toFixed(2))), borderColor:'#2a78d6', borderWidth:2.5, pointRadius:3, pointBackgroundColor:'#2a78d6', tension:0.3, fill:false},
+        {label:'Upper', data:computed.map(()=>parseFloat(UPPER_PRICE.toFixed(2))), borderColor:'#1baf7a', borderWidth:1.5, borderDash:[6,4], pointRadius:0, fill:false},
+        {label:'Lower', data:computed.map(()=>parseFloat(LOWER_PRICE.toFixed(2))), borderColor:'#e34948', borderWidth:1.5, borderDash:[6,4], pointRadius:0, fill:false}
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: {display:false}, tooltip: {callbacks: {label: c => c.dataset.label + ': $' + c.parsed.y.toFixed(2)}} },
+      scales: {
+        x: { ticks: {color:'#898781', font:{size:11}, maxRotation:45, autoSkip:true, maxTicksLimit:14}, grid: {display:false} },
+        y: { ticks: {color:'#898781', font:{size:11}, callback: v => '$' + v.toFixed(0)}, grid: {color:'#e8e8e4'} }
+      }
+    }
+  });
+}
+
+document.getElementById('newDate').value = today();
+
+const badge = document.getElementById('syncBadge');
+const syncText = document.getElementById('syncText');
+
+onValue(entriesRef, (snapshot) => {
+  const val = snapshot.val();
+  badge.classList.remove('offline');
+  syncText.textContent = 'Live — synced with everyone';
+
+  if (val === null && !seeded) {
+    // First-ever load with empty DB: seed it once
+    seeded = true;
+    const seedObj = {};
+    SEED.forEach(s => {
+      const newKey = push(entriesRef).key;
+      seedObj[newKey] = { date: s.date, price: s.price, by: 'seed' };
+    });
+    set(entriesRef, seedObj);
+    return; // onValue will fire again once seed write completes
+  }
+
+  entries = val ? Object.keys(val).map(key => Object.assign({key}, val[key])) : [];
+  render();
+}, (error) => {
+  badge.classList.add('offline');
+  syncText.textContent = 'Offline / connection error';
+  console.error(error);
+});
+</script>
+</body>
+</html>
